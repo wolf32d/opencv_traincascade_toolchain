@@ -4,7 +4,14 @@ import pygame
 from pygame.locals import * # all keys and everything
 from PIL import Image
 import numpy as np
+from optparse import OptionParser
 
+
+class term_colors:
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
 
 
 class cv_box_image:
@@ -12,12 +19,19 @@ class cv_box_image:
         self.cv_boxes= []
         self.cv_boxes_apect_ratios = []
         self.img_file_path = _img_file_path
-        self.pygame_img = pygame.image.load(_img_file_path)
-
-        width, height = self.pygame_img.get_rect()[2:]
+        # load the image file as pygame image
+        full_pygame_img = pygame.image.load(_img_file_path)
+        
+        # evaluate scaling factor
+        full_size = full_pygame_img.get_rect()[2:]
+        width, height = full_size 
         w_scaling_factor = np.ceil(width / 1920.0)
         h_scaling_factor = np.ceil(height / 1080.0)
-        self.scaling_factor = int(max(w_scaling_factor, h_scaling_factor))     
+        self.scaling_factor = int(max(w_scaling_factor, h_scaling_factor))           
+        
+        # scaled version of the image
+        scaled_size = tuple([e / self.scaling_factor for e in full_size])
+        self.pygame_img = pygame.transform.scale(full_pygame_img, scaled_size)
 
        
     def add_box(self, box_data):
@@ -34,14 +48,17 @@ def main_loop():
 
     def display_image(cv_box_image, flip=True):
         screen.blit(cv_box_image.pygame_img, cv_box_image.pygame_img.get_rect())
-        pygame.display.set_caption("%s, [%i boxes]" % (cv_box_image.img_file_path, len(cv_box_image.cv_boxes)) )
+            
+        window_caption = "%s, [scaled %ix, %i boxes]" % (cv_box_image.img_file_path, cv_box_image.scaling_factor, len(cv_box_image.cv_boxes))
+        
+        pygame.display.set_caption(window_caption)
         if cv_box_image.cv_boxes != []:
             for box in cv_box_image.cv_boxes:
                 sel_surf = pygame.Surface((box[2], box[3])) # width , height
                 
                 sel_surf.fill((0, 128, 0))
                 pygame.draw.rect(sel_surf, (0, 255, 0), sel_surf.get_rect(), 1)
-                sel_surf.set_alpha(100)
+                sel_surf.set_alpha(128)
                 
                 screen.blit(sel_surf, (box[0], box[1]) ) #top left corner
         if flip:
@@ -50,7 +67,6 @@ def main_loop():
     display_image(cv_box_images[0])
 
     selection_ongoing = False
-
 
     old_img_index = 0
     img_index = 0
@@ -75,27 +91,33 @@ def main_loop():
                     img_index = len(cv_box_images) - 1
                 else:
                     img_index -= 1
-            """        
+                    
             if event.type == pygame.KEYDOWN and event.key == K_PLUS:
                 if cv_box_images[img_index].cv_boxes != []:
                     x, y, width, height = cv_box_images[img_index].cv_boxes[-1]
-                    y -= 5
-                    x -= 5
-                    width += 10
-                    height += 10
+                    if y > 4: 
+                        y -= 4
+                        width += 8
+                    if x > 4:
+                        x -= 4
+                        height += 8
+
                     cv_box_images[img_index].cv_boxes[-1] = (x, y, width, height)
                     display_image(cv_box_images[img_index])
 
             if event.type == pygame.KEYDOWN and event.key == K_MINUS:
                 if cv_box_images[img_index].cv_boxes != []:
                     x, y, width, height = cv_box_images[img_index].cv_boxes[-1]
-                    y += 5
-                    x += 5
-                    width -= 10
-                    height -= 10
+                    if width > 8:
+                        y += 4
+                        width -= 8
+                    if height > 8:
+                        x += 4
+                        height -= 8
+                        
                     cv_box_images[img_index].cv_boxes[-1] = (x, y, width, height)
                     display_image(cv_box_images[img_index])
-            """  
+              
             if event.type == pygame.KEYDOWN and event.key == K_BACKSPACE:
                 if cv_box_images[img_index].cv_boxes != []:
                     cv_box_images[img_index].cv_boxes.pop()
@@ -148,7 +170,7 @@ def main_loop():
                 sel_surf.fill((0, 0, 128))
                 pygame.draw.rect(sel_surf, (0, 0, 255), sel_surf.get_rect(), 1)
                 
-                sel_surf.set_alpha(100)
+                sel_surf.set_alpha(128)
                 top_left_corner = (min(first_selection_corner[0], second_selection_corner[0])), min(first_selection_corner[1], second_selection_corner[1])
                 
                 
@@ -157,18 +179,32 @@ def main_loop():
                 pygame.display.flip()
                 
 
+# get options
+
+usage_str = "usage: %prog [options] data_dir1, data_dir2, ..."
+
+parser = OptionParser(usage=usage_str)
+
+parser.add_option("-p", "--positives-dir", action="store", dest="positives_directory_path",
+                  help="positive images directory", metavar="FILE")
+parser.add_option("-n", "--name", action="store", dest="cascade_classifier_name",
+                  help="cascade classifier name")
+(options, opts_args) = parser.parse_args()
+
+positives_directory_path = options.positives_directory_path
+cascade_classifier_name  = options.cascade_classifier_name
+
 # get images directory path
-images_dir_path = sys.argv[1].strip()
-if os.path.isdir(images_dir_path):
+if os.path.isdir(positives_directory_path):
     pass
-elif os.path.isdir("./" + images_dir_path):
-    images_dir_path = "./" + images_dir_path
+elif os.path.isdir("./" + positives_directory_path):
+    positives_directory_path = "./" + positives_directory_path
 else:
-    print "images_dir_path: no such directory"
+    print term_colors.FAIL + ("ERROR! %s doesn't exist" % positives_directory_path) + term_colors.ENDC
     sys.exit(0)
     
-if images_dir_path[-1] != "/":
-    images_dir_path += "/"
+if positives_directory_path[-1] != "/":
+    positives_directory_path += "/"
     
 
 def is_image(file_name):
@@ -177,65 +213,75 @@ def is_image(file_name):
             return True
         
 # get images file names
-img_file_list = [name for name in os.listdir(images_dir_path) if is_image(name)]
+img_file_list = [name for name in os.listdir(positives_directory_path) if is_image(name)]
+
+if len(img_file_list) == 0:
+    print term_colors.FAIL + ("ERROR! no images in %s" % positives_directory_path) + term_colors.ENDC
+    sys.exit(0)
+    
+print "%i image file found" % len(img_file_list)
 
 # load all images
 cv_box_images = []
 
 for img_file_name in img_file_list:
-    image_path = os.path.join(images_dir_path, img_file_name)
+    image_path = os.path.join(positives_directory_path, img_file_name)
     cv_box_images.append(cv_box_image(image_path))
 
 
-# pygame setup screen
+# setup the gui
 pygame.init()
 main_loop()
 pygame.display.quit()
 
 
-#generate positive info.dat file
-positives_list_name = sys.argv[2]
-info_file = open(positives_list_name, "w")
+#generate positives list file
+positives_list_name = cascade_classifier_name + ".dat"
+positives_list_file = open(positives_list_name, "w")
 
 total_boxes_num = 0
 for cv_box_image in cv_box_images:
 
     cv_boxes_num = len(cv_box_image.cv_boxes)
-    
     total_boxes_num += cv_boxes_num
     if cv_boxes_num > 0:
         info_line = "%s %i" % (cv_box_image.img_file_path, cv_boxes_num)
         
-        for box in cv_box_image.cv_boxes:
-            info_line += " %i %i %i %i" % box
+        for scaled_box_data in cv_box_image.cv_boxes:
+            # WRITE DE-SCALED COORDINATES TO FILE
+            box_data = tuple([e * cv_box_image.scaling_factor for e in scaled_box_data])
+            
+            info_line += " %i %i %i %i" % box_data
         
         info_line += "\n"    
-        info_file.write(info_line)
-        print info_line.strip()
-info_file.close
+        positives_list_file.write(info_line)
+        #print info_line.strip()
+positives_list_file.close()
 
 print
-print "Total %i boxes, Done!" % total_boxes_num
-
+print "DONE!"
+print "Total: %i samples" % total_boxes_num
 
 all_aspect_ratios = []
 for cv_box_image in cv_box_images:
     all_aspect_ratios += cv_box_image.cv_boxes_apect_ratios
     
 mean_aspect_ratio = np.mean(np.array(all_aspect_ratios))
-print    
+  
 print "mean aspect ratio:", mean_aspect_ratio
+width = int(24*mean_aspect_ratio)
+height = 24
 
-w = int(24*mean_aspect_ratio)
-h = 24
+vec_file_name = cascade_classifier_name + '.vec'
 
-command = "opencv_createsamples -vec out.vec -info %s -bg negatives.dat -num %i -show -h %i -w %i" % (
-positives_list_name, total_boxes_num, h, w)
+create_samples_command = "opencv_createsamples -vec %s -info %s -num %i -show -h %i -w %i" % (vec_file_name, positives_list_name, total_boxes_num, height, width)
 
-print "opencv_createsamples command:"
+print "starting opencv_createsamples: [press ESC not to show samples]"
+print term_colors.OKGREEN + create_samples_command + term_colors.ENDC
 print
-print command
-print
+
+
+os.system(create_samples_command)
 
 
 
