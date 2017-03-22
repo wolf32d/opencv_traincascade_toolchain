@@ -1,334 +1,459 @@
 import sys
 import os
 import pygame
+import numpy as np
 from pygame.locals import * # all keys and everything
 from PIL import Image
-import numpy as np
 from optparse import OptionParser
-
 
 class term_colors:
     OKBLUE = '\033[94m'
     OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
     FAIL = '\033[91m'
     ENDC = '\033[0m'
 
 
-class cv_box_image:
-    def __init__(self, _img_file_path):
-        self.cv_boxes= []
-        self.cv_boxes_apect_ratios = []
-        self.img_file_path = _img_file_path
+
+# mark up box object
+class mu_box:
+    def __init__(self, _coordinates, _positive_flag):
+        # upper left corner x, y, width, heigth
+        self.tlx, self.tly, self.width, self.heigth  = list(_coordinates)
+        self.positive_flag = _positive_flag # bool type flag
+    def aspect_ratio(self,):
+        return float(self.width) / float(self.heigth)
+    def color(self,):
+        green = (0, 128, 0)
+        red   = (155, 0, 0)
+        if self.positive_flag:
+            return green
+        else:
+            return red
+            
+            
+                    
+# marked up image object
+class cv_mu_image:
+    def __init__(self, _img_file_path, _screen_res=(1920, 1080)):
+        self.mu_boxes = []
+        
         # load the image file as pygame image
+        self.path = _img_file_path
         full_pygame_img = pygame.image.load(_img_file_path)
         
-        # evaluate scaling factor
+        # evaluate view inverse scaling factor
         full_size = full_pygame_img.get_rect()[2:]
-        width, height = full_size 
-        w_scaling_factor = np.ceil(width / 1920.0)
-        h_scaling_factor = np.ceil(height / 1080.0)
-        self.scaling_factor = int(max(w_scaling_factor, h_scaling_factor))           
+        width, height = full_size
+        w_inv_scaling_factor = np.ceil(height / _screen_res[0])
+        h_inv_scaling_factor = np.ceil(height / _screen_res[1])
+        self.inv_scaling_factor = 2 * int(max(np.ceil(float(width)  / float(_screen_res[0])),
+                                              np.ceil(float(height) / float(_screen_res[1]))))
+        
         
         # scaled version of the image
-        scaled_size = tuple([e / self.scaling_factor for e in full_size])
-        self.pygame_img = pygame.transform.scale(full_pygame_img, scaled_size)
-
+        scaled_size = tuple([e / self.inv_scaling_factor for e in full_size])
+        self.scaled_pygame_img = pygame.transform.scale(full_pygame_img, scaled_size)
        
-    def add_box(self, box_data):
-        self.cv_boxes.append(box_data)
-        new_spect_ratio = float(box_data[2]) / float(box_data[3])
-        self.cv_boxes_apect_ratios.append(new_spect_ratio)
-
-
-
-
-def main_loop():        
-    # show first image as default
-    screen = pygame.display.set_mode( cv_box_images[0].pygame_img.get_rect()[2:] )
-
-    def display_image(cv_box_image, flip=True):
-        screen.blit(cv_box_image.pygame_img, cv_box_image.pygame_img.get_rect())
-            
-        window_caption = "%s, [scaled %ix, %i boxes]" % (cv_box_image.img_file_path, cv_box_image.scaling_factor, len(cv_box_image.cv_boxes))
+    def add_mu_box(self, mu_box):
+        self.mu_boxes.append(mu_box)
         
-        pygame.display.set_caption(window_caption)
-        if cv_box_image.cv_boxes != []:
-            for box in cv_box_image.cv_boxes:
-                sel_surf = pygame.Surface((box[2], box[3])) # width , height
-                
-                sel_surf.fill((0, 128, 0))
-                pygame.draw.rect(sel_surf, (0, 255, 0), sel_surf.get_rect(), 1)
-                sel_surf.set_alpha(128)
-                
-                screen.blit(sel_surf, (box[0], box[1]) ) #top left corner
-        if flip:
-            pygame.display.flip()
+    def show(self, _pygame_screen_obj, _show_pos_flag=True, _show_neg_flag=True):
+        screen = _pygame_screen_obj
+        # show image itself
+        screen.blit(self.scaled_pygame_img, self.scaled_pygame_img.get_rect())
+        # show boxes
+        for box in self.mu_boxes:
+            box_shape = (box.width, box.heigth)
+            select_surf = pygame.Surface(box_shape)
+            select_surf.fill(box.color())
+            pygame.draw.rect(select_surf, box.color(), select_surf.get_rect(), 1)
             
-    display_image(cv_box_images[0])
-
-    selection_ongoing = False
-
-    old_img_index = 0
-    img_index = 0
-    old_mouse_pos = (0, 0)
-
-    while True:
-
-        for event in pygame.event.get():
-            if event.type == QUIT: 
-                return
-                
-            # go to next image
-            if event.type == pygame.KEYDOWN and event.key == K_s:
-                if img_index == len(cv_box_images) - 1: # wrap around
-                    img_index = 0
-                else:
-                    img_index += 1
-            
-            # go to previous image
-            if event.type == pygame.KEYDOWN and event.key == K_w:
-                if img_index == 0: # wrap around
-                    img_index = len(cv_box_images) - 1
-                else:
-                    img_index -= 1
-                    
-            if event.type == pygame.KEYDOWN and event.key == K_PLUS:
-                if cv_box_images[img_index].cv_boxes != []:
-                    x, y, width, height = cv_box_images[img_index].cv_boxes[-1]
-                    if y > 4: 
-                        y -= 4
-                        width += 8
-                    if x > 4:
-                        x -= 4
-                        height += 8
-
-                    cv_box_images[img_index].cv_boxes[-1] = (x, y, width, height)
-                    display_image(cv_box_images[img_index])
-
-            if event.type == pygame.KEYDOWN and event.key == K_MINUS:
-                if cv_box_images[img_index].cv_boxes != []:
-                    x, y, width, height = cv_box_images[img_index].cv_boxes[-1]
-                    if width > 8:
-                        y += 4
-                        width -= 8
-                    if height > 8:
-                        x += 4
-                        height -= 8
-                        
-                    cv_box_images[img_index].cv_boxes[-1] = (x, y, width, height)
-                    display_image(cv_box_images[img_index])
-              
-            if event.type == pygame.KEYDOWN and event.key == K_BACKSPACE:
-                if cv_box_images[img_index].cv_boxes != []:
-                    cv_box_images[img_index].cv_boxes.pop()
-                    display_image(cv_box_images[img_index]) 
-                    
-
-            if event.type == pygame.KEYDOWN and event.key == K_DELETE:
-                cv_box_images[img_index].cv_boxes = []
-                display_image(cv_box_images[img_index])  
-                    
-                                        
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                selection_ongoing = True
-                first_selection_corner = pygame.mouse.get_pos()
-            
-            if event.type == pygame.MOUSEBUTTONUP:
-                selection_ongoing = False
-                box = (top_left_corner[0], top_left_corner[1], width, height)
-                
-                # add the new box
-                if width != 0 and height != 0:
-                    cv_box_images[img_index].add_box(box)
-                    display_image(cv_box_images[img_index])
-            
-            
-        # show or refresh current image 
-        if (old_img_index != img_index):
-            screen = pygame.display.set_mode( cv_box_images[img_index].pygame_img.get_rect()[2:] )
-            display_image(cv_box_images[img_index])
-            pygame.display.flip()
-            old_img_index = img_index
-            
-        # selection rectangle logic
-        if selection_ongoing == True:
-            mouse_pos = pygame.mouse.get_pos()
-            if (mouse_pos != old_mouse_pos):
-                second_selection_corner = mouse_pos
-                
-                # ongoing selection
-                # redraw image before the rectangle BUT DONT'T FLIP    
-                display_image(cv_box_images[img_index], flip=False)
-                
-                # draw selection rectangle on top
-                frame = cv_box_images[img_index].pygame_img.get_rect()
-                
-                width = abs(second_selection_corner[0] - first_selection_corner[0])
-                height = abs(second_selection_corner[1] - first_selection_corner[1])
-                
-                sel_surf = pygame.Surface((width, height))
-                sel_surf.fill((0, 0, 128))
-                pygame.draw.rect(sel_surf, (0, 0, 255), sel_surf.get_rect(), 1)
-                
-                sel_surf.set_alpha(128)
-                top_left_corner = (min(first_selection_corner[0], second_selection_corner[0])), min(first_selection_corner[1], second_selection_corner[1])
-                
-                
-                screen.blit(sel_surf, top_left_corner)
-                
-                pygame.display.flip()
-                
-
+            if (_show_pos_flag and box.positive_flag):  
+                select_surf.set_alpha(100)
+            elif (_show_neg_flag and not box.positive_flag):  
+                select_surf.set_alpha(100)
+            else:
+                select_surf.set_alpha(255)
+            screen.blit(select_surf, (box.tlx, box.tly) ) #top left corner x, y
+            # note: do not pygame.display.flip() here
+            # so other functions can draw additional stuff (e.g selection boxes)
+        
+        
+        
+        
 # get options
 
 usage_str = ""
 
 parser = OptionParser(usage=usage_str)
 
-parser.add_option("-p", "--positives-dir", action="store", dest="positives_directory_path",
-                  help="positive images directory", metavar="FILE")
 parser.add_option("-n", "--name", action="store", dest="cascade_classifier_name",
-                  help="cascade classifier name", default="positives")
+                  help="cascade classifier name", default="default_cascade_name")
+parser.add_option("-i", "--images-folder", action="store", dest="images_folder",
+                  help="image folder path")
+parser.add_option("-P", "--positive-samples-list", action="store", dest="positive_samples_list",
+                  help="positive samples list file", default="default_positive_samples_list.txt")
+parser.add_option("-N", "--negative-samples-list", action="store", dest="negative_samples_list",
+                  help="negative samples list file", default="default_negative_samples_list.txt")
+parser.add_option("-o", "--output-negative-samples-folder", action="store", dest="out_neg_folder",
+                  help="output cropped negative samples folder")                  
+
+                  
 (options, opts_args) = parser.parse_args()
 
 
-positives_directory_path = options.positives_directory_path
-
-if positives_directory_path is None:
-    print term_colors.FAIL + "ERROR! no positive images folder given!" + term_colors.ENDC
-    sys.exit(0)
-    
-cascade_classifier_name  = options.cascade_classifier_name
-
-if cascade_classifier_name is None:
-    cascade_classifier_name = positives_directory_path
-
-
+images_folder = options.images_folder
 # get images directory path
-if os.path.isdir(positives_directory_path):
+if os.path.isdir(images_folder):
     pass
-elif os.path.isdir("./" + positives_directory_path):
-    positives_directory_path = "./" + positives_directory_path
+elif os.path.isdir("./" + images_folder):
+    images_folder = "./" + images_folder
 else:
-    print term_colors.FAIL + ("ERROR! %s doesn't exist" % positives_directory_path) + term_colors.ENDC
+    print term_colors.FAIL + ("ERROR! %s doesn't exist" % images_folder) + term_colors.ENDC
     sys.exit(0)
+if images_folder[-1] != "/":
+    images_folder += "/"
     
-if positives_directory_path[-1] != "/":
-    positives_directory_path += "/"
-    
-
 def is_image(file_name):
     for extension in ['.png', '.jpg']:
         if file_name[-4:].lower() == extension:
             return True
-        
+
 # get images file names
-img_file_list = [name for name in os.listdir(positives_directory_path) if is_image(name)]
+new_img_paths = [os.path.join(images_folder, fn) for fn in os.listdir(images_folder) if is_image(fn)]
 
-if len(img_file_list) == 0:
-    print term_colors.FAIL + ("ERROR! no images in %s" % positives_directory_path) + term_colors.ENDC
+
+if len(new_img_paths) == 0:
+    print term_colors.FAIL + ("ERROR! no images in %s" % images_folder) + term_colors.ENDC
     sys.exit(0)
+
+# create all cv_mu_images objects
+cv_mu_images = []
+for img_path in new_img_paths:
+    cv_mu_images.append(cv_mu_image(img_path))
+
+# get old positives files
+if os.path.isfile(options.positive_samples_list):
+    print "loading %s" % options.positive_samples_list
+    old_positives_list = open(options.positive_samples_list, "r").read() #TODO ckeck if exists
+
+    for line in old_positives_list.split('\n'):
+        line_data = line.split(' ')
+        if len(line_data) > 1:
+            old_path = line_data[0]
+            boxes_num = int(line_data[1])
+            try:
+                boxes_data = [int(e) for e in line_data[2:]]
+            except(ValueError):
+                print term_colors.FAIL + ("ERROR! %s is corrupted" % options.positive_samples_list) + term_colors.ENDC
+                sys.exit(0)
+                 
+            if len(line_data[2:])/4 != boxes_num: # opencv files consistency check
+                print term_colors.FAIL + ("ERROR! %s is corrupted" % options.positive_samples_list) + term_colors.ENDC
+                sys.exit(0)
+            
+            old_boxes =[boxes_data[x:x+4] for x in range(0, len(boxes_data),4)]
+            
+            # if a path is also present in the new image add all the boxes in it
+            if old_path in new_img_paths:
+                for cv_mu_image in cv_mu_images:
+                    if cv_mu_image.path == old_path:
+                        for old_box in old_boxes:
+                            old_mu_box = mu_box(np.array(old_box)/cv_mu_image.inv_scaling_factor, _positive_flag=True)
+                            cv_mu_image.add_mu_box(old_mu_box)
+            else:
+                print term_colors.WARNING + ("WARNING: %s is in %s but not in %s folder" % (old_path, options.positive_samples_list, images_folder)) + term_colors.ENDC    
+else:
+    print "%s does not exist, it will be a new positives file" % options.positive_samples_list
+
+
+# get old negatives files
+if os.path.isfile(options.negative_samples_list):
+    print "loading %s" % options.negative_samples_list
+    old_negatives_list = open(options.negative_samples_list, "r").read() #TODO ckeck if exists
+
+    for line in old_negatives_list.split('\n'):
+        line_data = line.split(' ')
+        if len(line_data) > 1:
+            old_path = line_data[0]
+            boxes_num = int(line_data[1])
+            try:
+                boxes_data = [int(e) for e in line_data[2:]]
+            except(ValueError):
+                print term_colors.FAIL + ("ERROR! %s is corrupted" % options.negative_samples_list) + term_colors.ENDC
+                sys.exit(0)
+                 
+            if len(line_data[2:])/4 != boxes_num: # opencv files consistency check
+                print term_colors.FAIL + ("ERROR! %s is corrupted" % options.negative_samples_list) + term_colors.ENDC
+                sys.exit(0)
+            
+            old_boxes =[boxes_data[x:x+4] for x in range(0, len(boxes_data),4)]
+            
+            # if a path is also present in the new image add all the boxes in it
+            if old_path in new_img_paths:
+                for cv_mu_image in cv_mu_images:
+                    if cv_mu_image.path == old_path:
+                        for old_box in old_boxes:
+                            old_mu_box = mu_box(np.array(old_box)/cv_mu_image.inv_scaling_factor, _positive_flag=False)
+                            cv_mu_image.add_mu_box(old_mu_box)
+            else:
+                print term_colors.WARNING + ("WARNING: %s is in %s but not in %s folder" % (old_path, options.negative_samples_list, images_folder)) + term_colors.ENDC    
+else:
+    print "%s does not exist, it will be a new negatives file" % options.negative_samples_list
     
-print "%i image file found" % len(img_file_list)
+    
+    
 
-# load all images
-cv_box_images = []
+def pygame_loop():
+    # setup the pygame gui
+    pygame.init()
 
-for img_file_name in img_file_list:
-    image_path = os.path.join(positives_directory_path, img_file_name)
-    cv_box_images.append(cv_box_image(image_path))
+    # pygame loop logic flags
+
+    positive_samplig_flag = True
+
+    show_pos_boxes = False
+    show_neg_boxes = True
+    init_flag = True
+
+    ongoing_selection = False
+
+    old_img_index = 0
+    img_index = 0
+    old_mouse_pos = (0, 0)
+
+    # pygame events loop
+    while True:
+        
+        # show the new cv_mu_image in the list 
+        if (old_img_index != img_index) or init_flag:
+            # also update the screen object
+            screen = pygame.display.set_mode( cv_mu_images[img_index].scaled_pygame_img.get_rect()[2:] )
+            cv_mu_images[img_index].show(screen)
+            pygame.display.flip()
+            old_img_index = img_index
+            init_flag = False
 
 
-# setup the gui
-pygame.init()
-main_loop()
+        for event in pygame.event.get():
+            # quit
+            if event.type == QUIT: 
+                return
+                
+            # go to next image
+            if event.type == pygame.KEYDOWN and event.key == K_s:
+                if img_index == len(cv_mu_images) - 1: # wrap around
+                    img_index = 0
+                else:
+                    img_index += 1
+            
+            # go to previous image
+            if event.type == pygame.KEYDOWN and event.key == K_w:
+                if img_index == 0:                     # wrap around
+                    img_index = len(cv_mu_images) - 1
+                else:
+                    img_index -= 1
+                    
+            # toggle positive sample mode
+            if event.type == pygame.KEYDOWN and event.key == K_p:
+                positive_samplig_flag = not positive_samplig_flag
+                cv_mu_images[img_index].show(screen)
+                pygame.display.flip()
+                
+            # toggle clear (positive or negative) boxes
+            if event.type == pygame.KEYDOWN and event.key == K_c:
+                if positive_samplig_flag:
+                    show_pos_boxes = not show_pos_boxes
+                else:
+                    show_neg_boxes = not show_neg_boxes
+                                           
+            # enlarge current box
+            if event.type == pygame.KEYDOWN and event.key == K_PLUS:
+                ### TODO
+                print "TODO + command"
+            
+            # shrink current box
+            if event.type == pygame.KEYDOWN and event.key == K_MINUS:
+                ### TODO
+                print "TODO - command"
+            
+            # delete current box  
+            if event.type == pygame.KEYDOWN and event.key == K_BACKSPACE:
+                if cv_mu_images[img_index].mu_boxes != []:
+                    cv_mu_images[img_index].mu_boxes.pop()
+                    cv_mu_images[img_index].show(screen)
+                    pygame.display.flip()
+                    
+            # delete all boxes in current image
+            if event.type == pygame.KEYDOWN and event.key == K_DELETE:
+                cv_mu_images[img_index].mu_boxes = []
+                cv_mu_images[img_index].show(screen)
+                pygame.display.flip() 
+                
+            # select event: start a new selection
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                ongoing_selection = True
+                first_selection_corner = pygame.mouse.get_pos()
+                
+            # select event: end the selection process and create a new box
+            if event.type == pygame.MOUSEBUTTONUP:
+                ongoing_selection = False
+                box_coords = (top_left_corner[0], top_left_corner[1], width, height)
+                # add the new box to the current image
+                if width != 0 and height != 0:
+                    cv_mu_images[img_index].add_mu_box(mu_box(box_coords, positive_samplig_flag))
+                    cv_mu_images[img_index].show(screen)
+                    pygame.display.flip()
+
+        # selection rectangle logic
+        if ongoing_selection == True:
+            mouse_pos = pygame.mouse.get_pos()
+            if (mouse_pos != old_mouse_pos):
+                
+                cv_mu_images[img_index].show(screen)
+
+                # draw selection rectangle on top of current image
+                second_selection_corner = mouse_pos
+                width = abs(second_selection_corner[0] - first_selection_corner[0])
+                height = abs(second_selection_corner[1] - first_selection_corner[1])
+                
+                select_surf = pygame.Surface((width, height))
+                select_surf.fill((0, 0, 128))
+                pygame.draw.rect(select_surf, (0, 0, 255), select_surf.get_rect(), 1)
+                
+                select_surf.set_alpha(128)
+                top_left_corner = (min(first_selection_corner[0], second_selection_corner[0])), min(first_selection_corner[1], second_selection_corner[1])
+                
+                screen.blit(select_surf, top_left_corner)           
+                pygame.display.flip()
+         
+         
+
+pygame_loop()         
+# quit
 pygame.display.quit()
 
 
-#generate positives list file
-positives_list_name = cascade_classifier_name + ".dat"
-positives_list_file = open(positives_list_name, "w")
+# generate the new positives list file
+positives_list_file = open(options.positive_samples_list, "w")
 
-total_samples_num = 0
-for cv_box_image in cv_box_images:
-
-    cv_boxes_num = len(cv_box_image.cv_boxes)
-    total_samples_num += cv_boxes_num
-    if cv_boxes_num > 0:
-        info_line = "%s %i" % (cv_box_image.img_file_path, cv_boxes_num)
+total_positives_num = 0
+for cv_mu_image in cv_mu_images:
+    positive_mu_boxes = [e for e in cv_mu_image.mu_boxes if e.positive_flag]
+    positive_boxes_num = len(positive_mu_boxes)
+    total_positives_num += positive_boxes_num
+    if positive_boxes_num > 0:
+        list_line = "%s %i" % (cv_mu_image.path, positive_boxes_num)
         
-        for scaled_box_data in cv_box_image.cv_boxes:
-            # WRITE DE-SCALED COORDINATES TO FILE
-            box_data = tuple([e * cv_box_image.scaling_factor for e in scaled_box_data])
+        for pbox in positive_mu_boxes:
+            # note: write the non-scaled coordiantes in the positives list file
+            descaled_coords = tuple([e * cv_mu_image.inv_scaling_factor for e in (pbox.tlx, pbox.tly, pbox.width, pbox.heigth)])
             
-            info_line += " %i %i %i %i" % box_data
-        
-        info_line += "\n"    
-        positives_list_file.write(info_line)
-        #print info_line.strip()
+            list_line += " %i %i %i %i" % descaled_coords
+        list_line += "\n"    
+        positives_list_file.write(list_line)
 positives_list_file.close()
 
-print
-print "DONE!"
-print "Total: %i samples" % total_samples_num
+print "Done. %i positive sample(s) written to %s" % (total_positives_num, options.positive_samples_list)
 
-all_aspect_ratios = []
-for cv_box_image in cv_box_images:
-    all_aspect_ratios += cv_box_image.cv_boxes_apect_ratios
+
+# generate the new negatives list file (tool version)
+negatives_list_file = open(options.negative_samples_list, "w")
+
+total_negatives_num = 0
+for cv_mu_image in cv_mu_images:
+    negative_mu_boxes = [e for e in cv_mu_image.mu_boxes if not e.positive_flag]
+    negative_boxes_num = len(negative_mu_boxes)
+    total_negatives_num += negative_boxes_num
+    if negative_boxes_num > 0:
+        list_line = "%s %i" % (cv_mu_image.path, negative_boxes_num)
+        
+        for pbox in negative_mu_boxes:
+            # note: write the non-scaled coordiantes in the negatives list file
+            descaled_coords = tuple([e * cv_mu_image.inv_scaling_factor for e in (pbox.tlx, pbox.tly, pbox.width, pbox.heigth)])
+            
+            list_line += " %i %i %i %i" % descaled_coords
+        list_line += "\n"    
+        negatives_list_file.write(list_line)
+negatives_list_file.close()
+
+print "Done. %i negative sample(s) written to %s" % (total_negatives_num, options.negative_samples_list)
+
+ 
+# generate cropped negatives and the new negatives list file (opencv version)
+if not os.path.isdir(options.out_neg_folder):
+    print term_colors.FAIL + ("ERROR! %s no such directory" % options.out_neg_folder) + term_colors.ENDC
+    sys.exit(0)
     
+
+neg_sample_num = 0
+cv_negative_list_file_name = options.cascade_classifier_name + "_train_negatives.dat"
+cv_negative_list_file = open(cv_negative_list_file_name, "w")
+
+for cv_mu_image in cv_mu_images:
+    negative_mu_boxes = [e for e in cv_mu_image.mu_boxes if not e.positive_flag]
+
+    path = cv_mu_image.path
+    
+    for nbox in negative_mu_boxes:
+        # note: pil requires absolute coords for both corners
+        descaled_coords = tuple([e * cv_mu_image.inv_scaling_factor for e in (nbox.tlx, nbox.tly, nbox.tlx+nbox.width, nbox.tly+nbox.heigth)])
+        cropped_neg_sample = Image.open(path).crop(descaled_coords)
+        cropped_neg_sample_name = os.path.join(options.out_neg_folder, "negative_%i.png" % neg_sample_num)
+        cv_negative_list_file.write(cropped_neg_sample_name+"\n")
+        cropped_neg_sample.save(cropped_neg_sample_name)
+        neg_sample_num += 1
+        print "%i/%i negatives saved" % (neg_sample_num, total_negatives_num)     
+cv_negative_list_file.close()
+     
+     
+     
+# launch the opencv_createsamples command
+all_aspect_ratios = []
+
+for cv_mu_image in cv_mu_images:
+    for mu_box in cv_mu_image.mu_boxes:
+        all_aspect_ratios.append(mu_box.aspect_ratio())
+
 mean_aspect_ratio = np.mean(np.array(all_aspect_ratios))
   
-print "mean aspect ratio:", mean_aspect_ratio
-width = int(24*mean_aspect_ratio)
-height = 24
+print "positive samples mean aspect ratio:", mean_aspect_ratio
+default_height = 24
+width = int(default_height * mean_aspect_ratio)
+height = default_height
 
-vec_file_name = cascade_classifier_name + '.vec'
+vec_file_name = options.cascade_classifier_name + ".vec"
 
-create_samples_command = "opencv_createsamples -vec %s -info %s -num %i -show -h %i -w %i" % (vec_file_name, positives_list_name, total_samples_num, height, width)
+create_samples_command = "opencv_createsamples -vec %s -info %s -num %i -h %i -w %i -show" % (vec_file_name, options.positive_samples_list, total_positives_num, height, width)
 
 print "starting opencv_createsamples: [press ESC not to show samples]"
-print term_colors.OKGREEN + create_samples_command + term_colors.ENDC
-print
-
+print term_colors.OKBLUE + create_samples_command
 os.system(create_samples_command)
-
+print term_colors.ENDC
 # opencv_traincascade suggestion
-cascade_dir_name = cascade_classifier_name + "_cascade_dir"
+cascade_dir_name = options.cascade_classifier_name + "_output_xmls"
+if not os.path.isdir(cascade_dir_name):
+    print "creating %s folder for possible output of opencv_traincascade" % cascade_dir_name
+    os.mkdir(cascade_dir_name)
 
-traincascade_command = "opencv_traincascade -data %s -vec -bg ***.dat -numPos %i -numNeg *** -num 20 -h %i -w %i" % (cascade_dir_name, total_samples_num, height, width)
+traincascade_command = "opencv_traincascade -data %s -vec %s -bg %s -numPos %i -numNeg %i -num 20 -h %i -w %i" % (cascade_dir_name, vec_file_name, cv_negative_list_file_name, total_positives_num, total_negatives_num, height, width)
 
-print "suggested opencv_traincascade command: [press ESC not to show samples]"
+print "suggested opencv_traincascade command:"
 print term_colors.OKGREEN + traincascade_command + term_colors.ENDC
-print
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
