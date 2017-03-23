@@ -76,7 +76,7 @@ class cv_mu_image:
             else:
                 select_surf.set_alpha(255)
             screen.blit(select_surf, (box.tlx, box.tly) ) #top left corner x, y
-            # note: do not pygame.display.flip() here
+            # note: do not update_display(pygame.display) here
             # so other functions can draw additional stuff (e.g selection boxes)
         
         
@@ -206,12 +206,13 @@ else:
     
 
 def pygame_loop():
+
     # setup the pygame gui
     pygame.init()
 
     # pygame loop logic flags
 
-    positive_samplig_flag = True
+    positive_sampling_flag = True
 
     show_pos_boxes = False
     show_neg_boxes = True
@@ -222,6 +223,24 @@ def pygame_loop():
     old_img_index = 0
     img_index = 0
     old_mouse_pos = (0, 0)
+    
+    
+    def update_display(pygame_display_obj):
+        
+        positive_sampling_flag
+        ongoing_selection
+        img_index
+        cv_mu_images
+        path = cv_mu_images[img_index].path
+        
+        if positive_sampling_flag:
+            pos_neg_str = "POSITIVE"
+        else:
+            pos_neg_str = "NEGATIVE"
+        
+        window_caption = "%s %s" % (path, pos_neg_str)
+        pygame_display_obj.set_caption(window_caption)
+        pygame_display_obj.flip()
 
     # pygame events loop
     while True:
@@ -231,7 +250,7 @@ def pygame_loop():
             # also update the screen object
             screen = pygame.display.set_mode( cv_mu_images[img_index].scaled_pygame_img.get_rect()[2:] )
             cv_mu_images[img_index].show(screen)
-            pygame.display.flip()
+            update_display(pygame.display)
             old_img_index = img_index
             init_flag = False
 
@@ -257,13 +276,13 @@ def pygame_loop():
                     
             # toggle positive sample mode
             if event.type == pygame.KEYDOWN and event.key == K_p:
-                positive_samplig_flag = not positive_samplig_flag
+                positive_sampling_flag = not positive_sampling_flag 
                 cv_mu_images[img_index].show(screen)
-                pygame.display.flip()
+                update_display(pygame.display)
                 
             # toggle clear (positive or negative) boxes
             if event.type == pygame.KEYDOWN and event.key == K_c:
-                if positive_samplig_flag:
+                if positive_sampling_flag :
                     show_pos_boxes = not show_pos_boxes
                 else:
                     show_neg_boxes = not show_neg_boxes
@@ -283,13 +302,13 @@ def pygame_loop():
                 if cv_mu_images[img_index].mu_boxes != []:
                     cv_mu_images[img_index].mu_boxes.pop()
                     cv_mu_images[img_index].show(screen)
-                    pygame.display.flip()
+                    update_display(pygame.display)
                     
             # delete all boxes in current image
             if event.type == pygame.KEYDOWN and event.key == K_DELETE:
                 cv_mu_images[img_index].mu_boxes = []
                 cv_mu_images[img_index].show(screen)
-                pygame.display.flip() 
+                update_display(pygame.display) 
                 
             # select event: start a new selection
             if event.type == pygame.MOUSEBUTTONDOWN:
@@ -302,9 +321,9 @@ def pygame_loop():
                 box_coords = (top_left_corner[0], top_left_corner[1], width, height)
                 # add the new box to the current image
                 if width != 0 and height != 0:
-                    cv_mu_images[img_index].add_mu_box(mu_box(box_coords, positive_samplig_flag))
+                    cv_mu_images[img_index].add_mu_box(mu_box(box_coords, positive_sampling_flag ))
                     cv_mu_images[img_index].show(screen)
-                    pygame.display.flip()
+                    update_display(pygame.display)
 
         # selection rectangle logic
         if ongoing_selection == True:
@@ -326,7 +345,7 @@ def pygame_loop():
                 top_left_corner = (min(first_selection_corner[0], second_selection_corner[0])), min(first_selection_corner[1], second_selection_corner[1])
                 
                 screen.blit(select_surf, top_left_corner)           
-                pygame.display.flip()
+                update_display(pygame.display)
          
          
 
