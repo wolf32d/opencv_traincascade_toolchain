@@ -12,7 +12,7 @@ mkdir negatives
 python create_samples.py -i example_images -n apple -P positives.dat -N tool_negatives.dat -o negatives
 ```
 \
-drag-select positive samples with the cursor
+drag-select positive samples with the cursor (some "boxes" will be already there, they are defined in positives.dat and tool_negatives.dat)
 use W and S keys to move to the next or previous image
 \
 ![positive sample selection](docs/positive_sample.png?raw=true "positive sample selection")
@@ -25,10 +25,9 @@ you can pick multiple samples multiple from the same image
 \
 ![multiple samples](docs/multiple_samples.png?raw=true "multiple samples selection")
 \
-When you have selected enpugh samples just quit the image window. The coordinates of both the green and red boxes (positive and negative samples) will be saved in the two files specified with the -P and -N options. 
+When you have selected enpugh samples just quit the image window. The coordinates of both the green and red boxes (positive and negative samples) will be saved in the two files specified with the -P and -N options (in this case positives.dat and tool_negatives.dat).
 
 The script create_samples.py will then suggest an opencv_traincascade command which is consistent with the parameters relevant to the sets of samples that has been created. Here's an example:
-\
 ```
 opencv_traincascade -data apple_output_xmls -vec apple.vec -bg apple_train_negatives.dat -numPos 5 -numNeg 9 -num 20 -h 24 -w 26
 ```
