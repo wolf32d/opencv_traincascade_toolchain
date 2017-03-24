@@ -6,7 +6,7 @@ The creation of the necessary samples is simplified with this toolchain.
 
 For a quick test on a GNU/Linux system:
 ```
-git clone https://github.com/wolf32d/opencv_traincascade_toolchain/edit/master/README.md
+git clone https://github.com/wolf32d/opencv_traincascade_toolchain
 cd opencv_traincascade_toolchain
 mkdir negatives
 python create_samples.py -i example_images -n apple -P positives.dat -N tool_negatives.dat -o negatives
