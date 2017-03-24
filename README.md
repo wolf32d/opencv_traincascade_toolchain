@@ -32,7 +32,7 @@ The script create_samples.py will then suggest an opencv_traincascade command wh
 opencv_traincascade -data apple_output_xmls -vec apple.vec -bg apple_train_negatives.dat -numPos 5 -numNeg 9 -num 20 -h 24 -w 26
 ```
 
-note: working with big image is memory and time consuming. You can use image_scaler.py to scale all images contained in a given folder. Here's an example:
+Note: working with big images is memory and time consuming. You can use image_scaler.py to scale all images contained in a given folder. Here's an example:
 ```
 mkdir scaled_example_images
 python image_scaler.py example_images scaled_example_images 200
