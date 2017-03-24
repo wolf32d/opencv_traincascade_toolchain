@@ -21,7 +21,7 @@ hit the P key to toggle between positive and negative samples selection, hit BAC
 \
 ![positive sample selection](docs/negative_samplel.png?raw=true "negative sample selection")
 
-you can pick multiple samples multiple from the same image
+you can pick multiple samples from the same image
 \
 ![multiple samples](docs/multiple_samples.png?raw=true "multiple samples selection")
 \
