@@ -37,7 +37,6 @@ class mu_box:
 class cv_mu_image:
     def __init__(self, _img_file_path, _screen_res=(1920, 1080)):
         self.mu_boxes = []
-        
         # load the image file as pygame image
         self.path = _img_file_path
         full_pygame_img = pygame.image.load(_img_file_path)
@@ -47,8 +46,8 @@ class cv_mu_image:
         width, height = full_size
         w_inv_scaling_factor = np.ceil(height / _screen_res[0])
         h_inv_scaling_factor = np.ceil(height / _screen_res[1])
-        self.inv_scaling_factor = 2 * int(max(np.ceil(float(width)  / float(_screen_res[0])),
-                                              np.ceil(float(height) / float(_screen_res[1]))))
+        self.inv_scaling_factor = int(max(np.ceil(float(width)  / float(_screen_res[0])),
+                                          np.ceil(float(height) / float(_screen_res[1]))))
         
         
         # scaled version of the image
@@ -67,7 +66,7 @@ class cv_mu_image:
             box_shape = (box.width, box.heigth)
             select_surf = pygame.Surface(box_shape)
             select_surf.fill(box.color())
-            pygame.draw.rect(select_surf, box.color(), select_surf.get_rect(), 1)
+            pygame.draw.rect(select_surf, (255,255,255) , select_surf.get_rect(), 1)
             
             if (_show_pos_flag and box.positive_flag):  
                 select_surf.set_alpha(100)
@@ -78,7 +77,6 @@ class cv_mu_image:
             screen.blit(select_surf, (box.tlx, box.tly) ) #top left corner x, y
             # note: do not update_display(pygame.display) here
             # so other functions can draw additional stuff (e.g selection boxes)
-        
         
         
         
@@ -98,7 +96,8 @@ parser.add_option("-N", "--negative-samples-list", action="store", dest="negativ
                   help="negative samples list file", default="default_negative_samples_list.txt")
 parser.add_option("-o", "--output-negative-samples-folder", action="store", dest="out_neg_folder",
                   help="output cropped negative samples folder")                  
-
+parser.add_option("-a", "--annotate-only", action="store_true", dest="annotate_only",
+                  help="annotate only, do not create postives .vec file and negative samples")                  
                   
 (options, opts_args) = parser.parse_args()
 
@@ -116,7 +115,7 @@ if images_folder[-1] != "/":
     images_folder += "/"
     
 def is_image(file_name):
-    for extension in ['.png', '.jpg']:
+    for extension in ['.png', '.jpg', '.bmp']:
         if file_name[-4:].lower() == extension:
             return True
 
@@ -133,6 +132,11 @@ cv_mu_images = []
 for img_path in new_img_paths:
     cv_mu_images.append(cv_mu_image(img_path))
 
+
+
+negatives_num = 0
+positives_num = 0
+    
 # get old positives files
 if os.path.isfile(options.positive_samples_list):
     print "loading %s" % options.positive_samples_list
@@ -162,6 +166,7 @@ if os.path.isfile(options.positive_samples_list):
                         for old_box in old_boxes:
                             old_mu_box = mu_box(np.array(old_box)/cv_mu_image.inv_scaling_factor, _positive_flag=True)
                             cv_mu_image.add_mu_box(old_mu_box)
+                            positives_num +=1
             else:
                 print term_colors.WARNING + ("WARNING: %s is in %s but not in %s folder" % (old_path, options.positive_samples_list, images_folder)) + term_colors.ENDC    
 else:
@@ -197,6 +202,7 @@ if os.path.isfile(options.negative_samples_list):
                         for old_box in old_boxes:
                             old_mu_box = mu_box(np.array(old_box)/cv_mu_image.inv_scaling_factor, _positive_flag=False)
                             cv_mu_image.add_mu_box(old_mu_box)
+                            negatives_num += 1
             else:
                 print term_colors.WARNING + ("WARNING: %s is in %s but not in %s folder" % (old_path, options.negative_samples_list, images_folder)) + term_colors.ENDC    
 else:
@@ -205,7 +211,7 @@ else:
     
     
 
-def pygame_loop():
+def pygame_loop(init_positives_num, init_negatives_num):
 
     # setup the pygame gui
     pygame.init()
@@ -224,6 +230,8 @@ def pygame_loop():
     img_index = 0
     old_mouse_pos = (0, 0)
     
+    positives_num = init_positives_num
+    negatives_num = init_negatives_num    
     
     def update_display(pygame_display_obj):
         
@@ -232,13 +240,15 @@ def pygame_loop():
         img_index
         cv_mu_images
         path = cv_mu_images[img_index].path
+        negatives_num
+        positives_num 
         
         if positive_sampling_flag:
-            pos_neg_str = "POSITIVE"
+            pos_neg_str = "POS"
         else:
-            pos_neg_str = "NEGATIVE"
+            pos_neg_str = "NEG"
         
-        window_caption = "%s %s" % (path, pos_neg_str)
+        window_caption = "%s [%s] Np=%i Nn=%i" % (path, pos_neg_str, positives_num, negatives_num)
         pygame_display_obj.set_caption(window_caption)
         pygame_display_obj.flip()
 
@@ -322,6 +332,10 @@ def pygame_loop():
                 # add the new box to the current image
                 if width != 0 and height != 0:
                     cv_mu_images[img_index].add_mu_box(mu_box(box_coords, positive_sampling_flag ))
+                    if positive_sampling_flag:
+                        positives_num += 1
+                    else:
+                        negatives_num +=1
                     cv_mu_images[img_index].show(screen)
                     update_display(pygame.display)
 
@@ -349,7 +363,7 @@ def pygame_loop():
          
          
 
-pygame_loop()         
+pygame_loop(positives_num, negatives_num)         
 # quit
 pygame.display.quit()
 
@@ -400,79 +414,80 @@ negatives_list_file.close()
 print "Done. %i negative sample(s) written to %s" % (total_negatives_num, options.negative_samples_list)
 
  
-# generate cropped negatives and the new negatives list file (opencv version)
-if not os.path.isdir(options.out_neg_folder):
-    print term_colors.FAIL + ("ERROR! %s no such directory" % options.out_neg_folder) + term_colors.ENDC
-    sys.exit(0)
-    
+if not options.annotate_only:
+    # generate cropped negatives and the new negatives list file (opencv version)
+    if not os.path.isdir(options.out_neg_folder):
+        print term_colors.FAIL + ("ERROR! %s no such directory" % options.out_neg_folder) + term_colors.ENDC
+        sys.exit(0)
+        
 
-neg_sample_num = 0
-cv_negative_list_file_name = options.cascade_classifier_name + "_train_negatives.dat"
-cv_negative_list_file = open(cv_negative_list_file_name, "w")
+    neg_sample_num = 0
+    cv_negative_list_file_name = options.cascade_classifier_name + "_train_negatives.dat"
+    cv_negative_list_file = open(cv_negative_list_file_name, "w")
 
-for cv_mu_image in cv_mu_images:
-    negative_mu_boxes = [e for e in cv_mu_image.mu_boxes if not e.positive_flag]
+    for cv_mu_image in cv_mu_images:
+        negative_mu_boxes = [e for e in cv_mu_image.mu_boxes if not e.positive_flag]
 
-    path = cv_mu_image.path
-    
-    for nbox in negative_mu_boxes:
-        # note: pil requires absolute coords for both corners
-        descaled_coords = tuple([e * cv_mu_image.inv_scaling_factor for e in (nbox.tlx, nbox.tly, nbox.tlx+nbox.width, nbox.tly+nbox.heigth)])
-        cropped_neg_sample = Image.open(path).crop(descaled_coords)
-        cropped_neg_sample_name = os.path.join(options.out_neg_folder, "negative_%i.png" % neg_sample_num)
-        cv_negative_list_file.write(cropped_neg_sample_name+"\n")
-        cropped_neg_sample.save(cropped_neg_sample_name)
-        neg_sample_num += 1
-        print "%i/%i negatives saved" % (neg_sample_num, total_negatives_num)     
-cv_negative_list_file.close()
-     
-     
-     
-# launch the opencv_createsamples command
-all_aspect_ratios = []
+        path = cv_mu_image.path
+        
+        for nbox in negative_mu_boxes:
+            # note: pil requires absolute coords for both corners
+            descaled_coords = tuple([e * cv_mu_image.inv_scaling_factor for e in (nbox.tlx, nbox.tly, nbox.tlx+nbox.width, nbox.tly+nbox.heigth)])
+            cropped_neg_sample = Image.open(path).crop(descaled_coords)
+            cropped_neg_sample_name = os.path.join(options.out_neg_folder, "negative_%i.png" % neg_sample_num)
+            cv_negative_list_file.write(cropped_neg_sample_name+"\n")
+            cropped_neg_sample.save(cropped_neg_sample_name)
+            neg_sample_num += 1
+            print "%i/%i negatives saved" % (neg_sample_num, total_negatives_num)     
+    cv_negative_list_file.close()
+         
+         
+         
+    # launch the opencv_createsamples command
+    all_aspect_ratios = []
 
-for cv_mu_image in cv_mu_images:
-    for mu_box in cv_mu_image.mu_boxes:
-        all_aspect_ratios.append(mu_box.aspect_ratio())
+    for cv_mu_image in cv_mu_images:
+        for mu_box in cv_mu_image.mu_boxes:
+            all_aspect_ratios.append(mu_box.aspect_ratio())
 
-mean_aspect_ratio = np.mean(np.array(all_aspect_ratios))
-  
-print "positive samples mean aspect ratio:", mean_aspect_ratio
-default_height = 24
-width = int(default_height * mean_aspect_ratio)
-height = default_height
+    mean_aspect_ratio = np.mean(np.array(all_aspect_ratios))
+      
+    print "positive samples mean aspect ratio:", mean_aspect_ratio
+    default_height = 24
+    width = int(default_height * mean_aspect_ratio)
+    height = default_height
 
-vec_file_name = options.cascade_classifier_name + ".vec"
+    vec_file_name = options.cascade_classifier_name + ".vec"
 
-create_samples_command = "opencv_createsamples -vec %s -info %s -num %i -h %i -w %i -show" % (vec_file_name, options.positive_samples_list, total_positives_num, height, width)
+    create_samples_command = "opencv_createsamples -vec %s -info %s -num %i -h %i -w %i -show" % (vec_file_name, options.positive_samples_list, total_positives_num, height, width)
 
-print "starting opencv_createsamples: [press ESC not to show samples]"
-print term_colors.OKBLUE + create_samples_command
-os.system(create_samples_command)
-print term_colors.ENDC
-# opencv_traincascade suggestion
-cascade_dir_name = options.cascade_classifier_name + "_output_xmls"
-if not os.path.isdir(cascade_dir_name):
-    print "creating %s folder for possible output of opencv_traincascade" % cascade_dir_name
-    os.mkdir(cascade_dir_name)
+    print "starting opencv_createsamples: [press ESC not to show samples]"
+    print term_colors.OKBLUE + create_samples_command
+    os.system(create_samples_command)
+    print term_colors.ENDC
+    # opencv_traincascade suggestion
+    cascade_dir_name = options.cascade_classifier_name + "_output_xmls"
+    if not os.path.isdir(cascade_dir_name):
+        print "creating %s folder for possible output of opencv_traincascade" % cascade_dir_name
+        os.mkdir(cascade_dir_name)
 
-traincascade_command = "opencv_traincascade -data %s -vec %s -bg %s -numPos %i -numNeg %i -num 20 -h %i -w %i" % (cascade_dir_name, vec_file_name, cv_negative_list_file_name, total_positives_num, total_negatives_num, height, width)
+    traincascade_command = "opencv_traincascade -data %s -vec %s -bg %s -numPos %i -numNeg %i -num 20 -h %i -w %i" % (cascade_dir_name, vec_file_name, cv_negative_list_file_name, total_positives_num, total_negatives_num, height, width)
 
-print "suggested opencv_traincascade command:"
-print term_colors.OKGREEN + traincascade_command + term_colors.ENDC
+    print "suggested opencv_traincascade command:"
+    print term_colors.OKGREEN + traincascade_command + term_colors.ENDC
 
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
+         
+         
+         
+         
+         
+         
+         
+         
+         
+         
+         
+         
+         
+         
+         

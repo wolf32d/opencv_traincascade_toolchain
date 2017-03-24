@@ -36,4 +36,4 @@ for img in img_names:
     new_h = default_height
     new_w = int(float(w) * (float(default_height)/float(h)))
     print (new_w, new_h)
-    im.resize((new_w, new_h)).save(os.path.join(out_dir, img))
+    im.resize((new_w, new_h)).save(os.path.join(out_dir, "scaled_"+img))
