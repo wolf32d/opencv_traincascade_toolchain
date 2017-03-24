@@ -17,7 +17,7 @@ use W and S keys to move to the next or previous image
 \
 ![positive sample selection](docs/positive_sample.png?raw=true "positive sample selection")
 \
-hit the P key to toggle between positive and negative samples selection, hit BACKSPACE or DELETE to delete the smaples in the current image
+hit the P key to toggle between positive and negative samples selection, hit BACKSPACE or DELETE to delete the samples in the current image (we don't want UV light bulbs!)
 \
 ![positive sample selection](docs/negative_samplel.png?raw=true "negative sample selection")
 
@@ -31,3 +31,10 @@ The script create_samples.py will then suggest an opencv_traincascade command wh
 ```
 opencv_traincascade -data apple_output_xmls -vec apple.vec -bg apple_train_negatives.dat -numPos 5 -numNeg 9 -num 20 -h 24 -w 26
 ```
+
+note: working with big image is memory and time consuming. You can use image_scaler.py to scale all images contained in a given folder. Here's an example:
+```
+mkdir scaled_example_images
+python image_scaler.py example_images scaled_example_images 200
+```
+this will create a rescaled version of each image contained in the example_images folder. Each rescaled image has a fixed heigth of 200 pixels.
