@@ -2,6 +2,7 @@ import sys
 import os
 import pygame
 import numpy as np
+import cv2
 from pygame.locals import * # all keys and everything
 from PIL import Image
 from optparse import OptionParser
@@ -21,33 +22,43 @@ class mu_box:
         # upper left corner x, y, width, heigth
         self.tlx, self.tly, self.width, self.heigth  = list(_coordinates)
         self.positive_flag = _positive_flag # bool type flag
+        self.is_cascade_box_flag = False
     def aspect_ratio(self,):
         return float(self.width) / float(self.heigth)
     def color(self,):
-        green = (0, 128, 0)
         red   = (155, 0, 0)
-        if self.positive_flag:
-            return green
+        green = (0, 128, 0)
+        blue  = (0, 0, 200)
+        if self.is_cascade_box_flag:
+            return blue
         else:
-            return red
+            if self.positive_flag:
+                return green
+            else:
+                return red
             
             
                     
 # marked up image object
 class cv_mu_image:
-    def __init__(self, _img_file_path, _screen_res=(1920, 1080)):
+    #def __init__(self, _img_file_path, _screen_res=(1080, 1920)): # 90 deg rotation
+    def __init__(self, _img_file_path, _screen_res=(1920, 1080)): # default
+    
         self.mu_boxes = []
         # load the image file as pygame image
         self.path = _img_file_path
         full_pygame_img = pygame.image.load(_img_file_path)
         
+        self.boxes_selective_show = 0 # 0 = ALL
+                                      # 1 = pos/neg only
+                                      # 2 = haar only   
         # evaluate view inverse scaling factor
         full_size = full_pygame_img.get_rect()[2:]
         width, height = full_size
         w_inv_scaling_factor = np.ceil(height / _screen_res[0])
         h_inv_scaling_factor = np.ceil(height / _screen_res[1])
         self.inv_scaling_factor = int(max(np.ceil(float(width)  / float(_screen_res[0])),
-                                          np.ceil(float(height) / float(_screen_res[1]))))
+                                          np.ceil(float(height) / float(_screen_res[1])))) / 2
         
         
         # scaled version of the image
@@ -68,12 +79,18 @@ class cv_mu_image:
             select_surf.fill(box.color())
             pygame.draw.rect(select_surf, (255,255,255) , select_surf.get_rect(), 1)
             
-            if (_show_pos_flag and box.positive_flag):  
-                select_surf.set_alpha(100)
-            elif (_show_neg_flag and not box.positive_flag):  
-                select_surf.set_alpha(100)
-            else:
-                select_surf.set_alpha(255)
+            
+            if box.is_cascade_box_flag == True: # cv haar boxes
+                if self.boxes_selective_show in [0,2]:
+                    select_surf.set_alpha(100)
+                else:
+                    select_surf.set_alpha(0)
+            else: # pos neg boxes
+                if self.boxes_selective_show in [0,1]:
+                   select_surf.set_alpha(100)
+                else:
+                    select_surf.set_alpha(0)
+                    
             screen.blit(select_surf, (box.tlx, box.tly) ) #top left corner x, y
             # note: do not update_display(pygame.display) here
             # so other functions can draw additional stuff (e.g selection boxes)
@@ -96,8 +113,11 @@ parser.add_option("-N", "--negative-samples-list", action="store", dest="negativ
                   help="negative samples list file", default="default_negative_samples_list.txt")
 parser.add_option("-o", "--output-negative-samples-folder", action="store", dest="out_neg_folder",
                   help="output cropped negative samples folder")                  
+parser.add_option("-C", "--cascade", action="store", dest="old_cascade_fn",
+                  help="load an existing cascade to select further negatives and positives")                 
 parser.add_option("-a", "--annotate-only", action="store_true", dest="annotate_only",
-                  help="annotate only, do not create postives .vec file and negative samples")                  
+                  help="annotate only, do not create postives .vec file and negative samples")
+                  
                   
 (options, opts_args) = parser.parse_args()
 
@@ -173,6 +193,44 @@ else:
     print "%s does not exist, it will be a new positives file" % options.positive_samples_list
 
 
+# get cascade boxes from existing cascade
+if options.old_cascade_fn != None:
+    print "using existing cascade file: %s" % options.old_cascade_fn
+    
+    
+    for cv_mu_image in cv_mu_images:
+    
+        cascade = cv2.CascadeClassifier(options.old_cascade_fn)    
+    
+        img = cv2.imread(cv_mu_image.path)
+        
+        # experimental
+        cv_scale_factor = 2.0
+        gray_orig = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        gray = cv2.resize(gray_orig, (0,0),
+                          fx=cv_scale_factor, fy=cv_scale_factor,
+                          interpolation=cv2.cv.CV_INTER_CUBIC)
+        
+        
+    
+        detected_objs =  cascade.detectMultiScale(gray,
+                                                  minSize=(0, 0),
+                                                  flags=cv2.cv.CV_HAAR_SCALE_IMAGE)
+        #add a cascade type box
+        for (cvx, cvy, cvw, cvh) in detected_objs:
+            c_tlx    = int(cvx / (cv_mu_image.inv_scaling_factor * cv_scale_factor))
+            c_tly    = int(cvy / (cv_mu_image.inv_scaling_factor * cv_scale_factor))
+            c_width  = int(cvw / (cv_mu_image.inv_scaling_factor * cv_scale_factor))
+            c_heigth = int(cvh / (cv_mu_image.inv_scaling_factor * cv_scale_factor))
+            
+            cascade_box_coords = (c_tlx, c_tly, c_width, c_heigth)
+
+            cascade_mu_box = mu_box(cascade_box_coords, _positive_flag=True)
+            cascade_mu_box.is_cascade_box_flag = True
+            cv_mu_image.add_mu_box(cascade_mu_box)
+
+
 # get old negatives files
 if os.path.isfile(options.negative_samples_list):
     print "loading %s" % options.negative_samples_list
@@ -217,6 +275,7 @@ def pygame_loop(init_positives_num, init_negatives_num):
     pygame.init()
 
     # pygame loop logic flags
+    global_boxes_selective_show = 0
 
     positive_sampling_flag = True
 
@@ -231,7 +290,9 @@ def pygame_loop(init_positives_num, init_negatives_num):
     old_mouse_pos = (0, 0)
     
     positives_num = init_positives_num
-    negatives_num = init_negatives_num    
+    negatives_num = init_negatives_num
+    
+    current_box_ind = -1
     
     def update_display(pygame_display_obj):
         
@@ -257,6 +318,9 @@ def pygame_loop(init_positives_num, init_negatives_num):
         
         # show the new cv_mu_image in the list 
         if (old_img_index != img_index) or init_flag:
+            
+            cv_mu_images[img_index].boxes_selective_show = global_boxes_selective_show # just a hack, don't need selective view for each image
+        
             # also update the screen object
             screen = pygame.display.set_mode( cv_mu_images[img_index].scaled_pygame_img.get_rect()[2:] )
             cv_mu_images[img_index].show(screen)
@@ -276,6 +340,7 @@ def pygame_loop(init_positives_num, init_negatives_num):
                     img_index = 0
                 else:
                     img_index += 1
+                current_box_ind = -1
             
             # go to previous image
             if event.type == pygame.KEYDOWN and event.key == K_w:
@@ -283,20 +348,36 @@ def pygame_loop(init_positives_num, init_negatives_num):
                     img_index = len(cv_mu_images) - 1
                 else:
                     img_index -= 1
+                current_box_ind = -1
                     
             # toggle positive sample mode
             if event.type == pygame.KEYDOWN and event.key == K_p:
-                positive_sampling_flag = not positive_sampling_flag 
+                positive_sampling_flag = not positive_sampling_flag
+                
+                if positive_sampling_flag:
+                    print "switched to POSITIVE"
+                else:
+                    print "switched to NEGATIVE"
                 cv_mu_images[img_index].show(screen)
                 update_display(pygame.display)
-                
-            # toggle clear (positive or negative) boxes
-            if event.type == pygame.KEYDOWN and event.key == K_c:
-                if positive_sampling_flag :
-                    show_pos_boxes = not show_pos_boxes
+                    
+            # change boxes selective view
+            if event.type == pygame.KEYDOWN and event.key == K_h:
+                if global_boxes_selective_show == 2:
+                    global_boxes_selective_show = 0
                 else:
-                    show_neg_boxes = not show_neg_boxes
-                                           
+                    global_boxes_selective_show += 1
+                    
+                if global_boxes_selective_show == 0:
+                    print "showing ALL BOXES"
+                elif global_boxes_selective_show == 1:
+                    print "showing POS NEG only"
+                else:
+                    print "showing HAAR only"
+                cv_mu_images[img_index].boxes_selective_show = global_boxes_selective_show
+                cv_mu_images[img_index].show(screen)
+                update_display(pygame.display)    
+
             # enlarge current box
             if event.type == pygame.KEYDOWN and event.key == K_PLUS:
                 ### TODO
@@ -304,29 +385,70 @@ def pygame_loop(init_positives_num, init_negatives_num):
             
             # shrink current box
             if event.type == pygame.KEYDOWN and event.key == K_MINUS:
-                ### TODO
-                print "TODO - command"
-            
-            # delete current box  
-            if event.type == pygame.KEYDOWN and event.key == K_BACKSPACE:
                 if cv_mu_images[img_index].mu_boxes != []:
-                    cv_mu_images[img_index].mu_boxes.pop()
+                    current_box = cv_mu_images[img_index].mu_boxes[current_box_ind]
+                    current_box.width -= 2
+                    current_box.tlx += 1
+                    current_box.heigth -= 2
+                    current_box.tly += 1
+                    cv_mu_images[img_index].show(screen)
+                    update_display(pygame.display)
+                
+                
+            # notch current box size
+            if event.type == pygame.KEYDOWN and event.key == K_RIGHT:
+                if cv_mu_images[img_index].mu_boxes != []:
+                    current_box = cv_mu_images[img_index].mu_boxes[current_box_ind]
+                    current_box.width += 1
                     cv_mu_images[img_index].show(screen)
                     update_display(pygame.display)
                     
+            if event.type == pygame.KEYDOWN and event.key == K_LEFT:
+                if cv_mu_images[img_index].mu_boxes != []:
+                    current_box = cv_mu_images[img_index].mu_boxes[current_box_ind]
+                    current_box.width += 1
+                    current_box.tlx -= 1
+                    cv_mu_images[img_index].show(screen)
+                    update_display(pygame.display)
+                    
+                    
+            if event.type == pygame.KEYDOWN and event.key == K_DOWN:
+                if cv_mu_images[img_index].mu_boxes != []:
+                    current_box = cv_mu_images[img_index].mu_boxes[current_box_ind]
+                    current_box.heigth += 1
+                    cv_mu_images[img_index].show(screen)
+                    update_display(pygame.display)
+                    
+            if event.type == pygame.KEYDOWN and event.key == K_UP:
+                if cv_mu_images[img_index].mu_boxes != []:
+                    current_box = cv_mu_images[img_index].mu_boxes[current_box_ind]
+                    current_box.heigth += 1
+                    current_box.tly -= 1
+                    cv_mu_images[img_index].show(screen)
+                    update_display(pygame.display)
+                    
+                                  
+            
+            # delete current box  
+            if event.type == pygame.KEYDOWN and event.key == K_BACKSPACE:
+                cv_mu_images[img_index].mu_boxes = [b for i,b in enumerate(cv_mu_images[img_index].mu_boxes) if b.is_cascade_box_flag or i!=current_box_ind]
+                cv_mu_images[img_index].show(screen)
+                update_display(pygame.display)
+                        
+                    
             # delete all boxes in current image
             if event.type == pygame.KEYDOWN and event.key == K_DELETE:
-                cv_mu_images[img_index].mu_boxes = []
+                cv_mu_images[img_index].mu_boxes = [b for b in cv_mu_images[img_index].mu_boxes if b.is_cascade_box_flag]
                 cv_mu_images[img_index].show(screen)
                 update_display(pygame.display) 
                 
             # select event: start a new selection
-            if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: # 1=LEFT
                 ongoing_selection = True
                 first_selection_corner = pygame.mouse.get_pos()
                 
             # select event: end the selection process and create a new box
-            if event.type == pygame.MOUSEBUTTONUP:
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 ongoing_selection = False
                 box_coords = (top_left_corner[0], top_left_corner[1], width, height)
                 # add the new box to the current image
@@ -338,7 +460,40 @@ def pygame_loop(init_positives_num, init_negatives_num):
                         negatives_num +=1
                     cv_mu_images[img_index].show(screen)
                     update_display(pygame.display)
-
+                    current_box_ind = -1
+                    
+                    
+                    
+            # convert cv box to POS or NEG
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3: # 3=RIGHT
+                for box in cv_mu_images[img_index].mu_boxes:
+                    if box.is_cascade_box_flag:
+                        
+                        click_x, click_y = pygame.mouse.get_pos()
+                        if click_x in range(box.tlx, box.tlx+box.width):
+                            if click_y in range(box.tly, box.tly+box.heigth): 
+                                # convert box
+                                box.is_cascade_box_flag = False
+                                box.positive_flag = positive_sampling_flag
+                                if positive_sampling_flag:
+                                    print "CV box converted to POS"                                                  
+                                else:
+                                    print "CV box converted to NEG"
+                                cv_mu_images[img_index].show(screen)
+                                update_display(pygame.display)
+                                    
+            # change current box                        
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 2: # 2=WHEEL DOWN
+                for box_ind, box in enumerate(cv_mu_images[img_index].mu_boxes):
+                    if not box.is_cascade_box_flag:
+                        
+                        click_x, click_y = pygame.mouse.get_pos()
+                        if click_x in range(box.tlx, box.tlx+box.width):
+                            if click_y in range(box.tly, box.tly+box.heigth): 
+                                # select box
+                                current_box_ind = box_ind
+                                print "jumping to box no %i" % box_ind
+                
         # selection rectangle logic
         if ongoing_selection == True:
             mouse_pos = pygame.mouse.get_pos()
@@ -352,8 +507,8 @@ def pygame_loop(init_positives_num, init_negatives_num):
                 height = abs(second_selection_corner[1] - first_selection_corner[1])
                 
                 select_surf = pygame.Surface((width, height))
-                select_surf.fill((0, 0, 128))
-                pygame.draw.rect(select_surf, (0, 0, 255), select_surf.get_rect(), 1)
+                select_surf.fill((255, 255, 128))
+                pygame.draw.rect(select_surf, (255, 255, 0), select_surf.get_rect(), 1)
                 
                 select_surf.set_alpha(128)
                 top_left_corner = (min(first_selection_corner[0], second_selection_corner[0])), min(first_selection_corner[1], second_selection_corner[1])
@@ -373,7 +528,7 @@ positives_list_file = open(options.positive_samples_list, "w")
 
 total_positives_num = 0
 for cv_mu_image in cv_mu_images:
-    positive_mu_boxes = [e for e in cv_mu_image.mu_boxes if e.positive_flag]
+    positive_mu_boxes = [b for b in cv_mu_image.mu_boxes if b.positive_flag and (not b.is_cascade_box_flag)]
     positive_boxes_num = len(positive_mu_boxes)
     total_positives_num += positive_boxes_num
     if positive_boxes_num > 0:
@@ -396,7 +551,7 @@ negatives_list_file = open(options.negative_samples_list, "w")
 
 total_negatives_num = 0
 for cv_mu_image in cv_mu_images:
-    negative_mu_boxes = [e for e in cv_mu_image.mu_boxes if not e.positive_flag]
+    negative_mu_boxes = [b for b in cv_mu_image.mu_boxes if (not b.positive_flag) and (not b.is_cascade_box_flag)]
     negative_boxes_num = len(negative_mu_boxes)
     total_negatives_num += negative_boxes_num
     if negative_boxes_num > 0:
@@ -471,7 +626,9 @@ if not options.annotate_only:
         print "creating %s folder for possible output of opencv_traincascade" % cascade_dir_name
         os.mkdir(cascade_dir_name)
 
-    traincascade_command = "opencv_traincascade -data %s -vec %s -bg %s -numPos %i -numNeg %i -num 20 -h %i -w %i" % (cascade_dir_name, vec_file_name, cv_negative_list_file_name, total_positives_num, total_negatives_num, height, width)
+    numPos = int(0.85 * total_positives_num)
+
+    traincascade_command = "opencv_traincascade -data %s -vec %s -bg %s -numPos %i -numNeg %i -numStages 20 -h %i -w %i" % (cascade_dir_name, vec_file_name, cv_negative_list_file_name, numPos, total_negatives_num, height, width)
 
     print "suggested opencv_traincascade command:"
     print term_colors.OKGREEN + traincascade_command + term_colors.ENDC
