@@ -1,5 +1,4 @@
 # opencv_traincascade_toolchain
-
 In order to train an OpenCV cascade classifier one needs a set of negative and positive samples
 (see the [OpenCV User Guide](http://docs.opencv.org/2.4.13.2/doc/user_guide/ug_traincascade.html) ).
 The creation of the necessary samples is simplified with this toolchain.
